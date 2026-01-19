@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Marimo files 
+notebooks/__marimo__/*
+
+# Model checkpoints
+models
+
+# Data
+data
+
+# Env
+.env
