@@ -130,28 +130,71 @@ curl -X POST "http://localhost:8000/classify" \
 ## 7. Running on Kubernetes (kind)
 
 ### Prerequisites
-- Docker
-- kind (Kubernetes in Docker)
-- kubectl
+- Docker Desktop running
+- kind installed (`brew install kind`)
+- kubectl installed (`brew install kubectl`)
 
-### Deploy
+### Quick Start
 
 ```bash
-# Create kind cluster
-kind create cluster --name baby-cry-cluster
+# 1. Create kind cluster
+kind create cluster --name kind
 
-# Build and load image
+# 2. Build Docker image
 docker build -t baby-cry-classifier:latest .
-kind load docker-image baby-cry-classifier:latest --name baby-cry-cluster
 
-# Deploy to Kubernetes
+# 3. Load image into kind
+kind load docker-image baby-cry-classifier:latest
+
+# 4. Deploy to Kubernetes
 kubectl apply -f k8s/
 
-# Check pods
+# 5. Wait for pods to be ready
+kubectl get pods -w
+# (Press Ctrl+C once all pods show 1/1 Running)
+
+# 6. Port forward to access the service
+kubectl port-forward svc/orchestrator-service 8080:8000
+```
+
+### Test the Service
+
+In a new terminal:
+
+```bash
+# Health check
+curl http://localhost:8080/health
+
+# Find a sample WAV file
+WAV_FILE=$(find ~/.cache/huggingface/hub/datasets--mahmudulhasan01--baby_crying_sound -name "*.wav" 2>/dev/null | head -1)
+
+# Test classification
+curl -X POST "http://localhost:8080/classify" -F "file=@$WAV_FILE"
+```
+
+### Debugging
+
+```bash
+# Check pod status
 kubectl get pods
 
-# Port forward to test
-kubectl port-forward svc/orchestrator-service 8080:8000
+# View logs
+kubectl logs deployment/orchestrator
+kubectl logs deployment/preprocessor
+kubectl logs deployment/predictor
+
+# Restart deployments after image update
+kubectl rollout restart deployment/orchestrator deployment/preprocessor deployment/predictor
+```
+
+### Cleanup
+
+```bash
+# Delete resources
+kubectl delete -f k8s/
+
+# Delete cluster
+kind delete cluster --name kind
 ```
 
 ### Architecture
