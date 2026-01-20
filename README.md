@@ -50,6 +50,7 @@ Key findings from exploratory data analysis:
 | Model    | Accuracy |
 |----------|----------|
 | XGBoost  | ~35%     |
+| SVM      | ~59%     |
 
 *Note: Accuracy is limited due to class imbalance and feature extraction approach. Future improvements include data augmentation and fine-tuning pretrained audio models.*
 
@@ -212,7 +213,7 @@ This project uses **uv** for dependency management.
 ## 10. Known Limitations & Next Steps
 
 **Current Limitations:**
-- Model accuracy is limited (~35%)
+- Model accuracy is limited (~59%)
 - Large model files for container deployment
 
 **Future Improvements:**
