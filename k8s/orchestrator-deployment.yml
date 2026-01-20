@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  labels:
+    app: baby-cry-classifier
+    component: orchestrator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: baby-cry-classifier
+      component: orchestrator
+  template:
+    metadata:
+      labels:
+        app: baby-cry-classifier
+        component: orchestrator
+    spec:
+      containers:
+        - name: orchestrator
+          image: baby-cry-classifier:latest
+          imagePullPolicy: Never # For kind - use local image
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SERVICE_MODE
+              value: "orchestrator"
+            - name: PREPROCESSOR_URL
+              value: "http://preprocessor-service:8000"
+            - name: PREDICTOR_URL
+              value: "http://predictor-service:8000"
+            - name: CONFIG_PATH
+              value: "config.yml"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 5

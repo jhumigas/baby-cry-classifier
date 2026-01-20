@@ -1,0 +1,25 @@
+project_name: "Baby Cry Classifier"
+data_path: "mahmudulhasan01/baby_crying_sound"
+
+paths:
+  models_dir: "models"
+  model_filename: "svm_baby_cry.pkl"
+  scaler_filename: "scaler.pkl"
+  labels_filename: "label_names.pkl"
+
+features:
+  sampling_rate: 16000
+  n_mfcc: 40
+  n_mels: 128
+  n_fft: 400
+  hop_length: 160
+
+model:
+  kernel: "rbf"
+  C: 1.0
+  random_state: 42
+
+data:
+  test_size: 0.2
+  stratify: true
+  random_seed: 42

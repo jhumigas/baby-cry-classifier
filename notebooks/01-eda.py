@@ -166,7 +166,7 @@ def _(ds, labels, plt, sns):
     plt.ylabel("Count")
     plt.xticks(rotation=45)
     plt.gca().spines[['top', 'right']].set_visible(False)
-    plt.show()
+    # plt.show()
     return
 
 
@@ -207,7 +207,7 @@ def _(ds, np, plt, sns):
     plt.axvline(avg_duration, color='red', linestyle='--', label=f'Mean: {avg_duration:.2f}s')
     plt.legend()
     plt.gca().spines[['top', 'right']].set_visible(False)
-    plt.show()
+    # plt.show()
     return
 
 
@@ -252,7 +252,7 @@ def _(ds, labels, np, plt, random, torch, torchaudio):
         plt.colorbar(im, ax=axs[1], format='%+2.0f dB')
 
         plt.tight_layout()
-        plt.show()
+        # plt.show()
 
     # Plot a random sample
     random_idx = random.randint(0, len(ds) - 1)

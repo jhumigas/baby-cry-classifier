@@ -1,0 +1,54 @@
+---
+# Orchestrator Service - External access via NodePort
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator-service
+  labels:
+    app: baby-cry-classifier
+    component: orchestrator
+spec:
+  type: NodePort
+  selector:
+    app: baby-cry-classifier
+    component: orchestrator
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30080
+
+---
+# Preprocessor Service - Internal ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: preprocessor-service
+  labels:
+    app: baby-cry-classifier
+    component: preprocessor
+spec:
+  type: ClusterIP
+  selector:
+    app: baby-cry-classifier
+    component: preprocessor
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# Predictor Service - Internal ClusterIP
+apiVersion: v1
+kind: Service
+metadata:
+  name: predictor-service
+  labels:
+    app: baby-cry-classifier
+    component: predictor
+spec:
+  type: ClusterIP
+  selector:
+    app: baby-cry-classifier
+    component: predictor
+  ports:
+    - port: 8000
+      targetPort: 8000

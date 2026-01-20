@@ -1,7 +1,7 @@
 import marimo
 
 __generated_with = "0.19.4"
-app = marimo.App(width="medium")
+app = marimo.App(width="medium", auto_download=["ipynb"])
 
 
 @app.cell
@@ -18,9 +18,10 @@ def _(mo):
     This notebook covers:
     1. **Evaluation Metric**: Defining Accuracy.
     2. **Baseline Model**: Training a Logistic Regression model on flattened audio features.
-    3. **Advanced Classical**: MFCCs + SVM with Stratified K-Fold.
-    4. **Data Augmentation**: Setup for deep learning.
-    5. **Fine-Tuning**: Fine-tuning `facebook/wav2vec2-base` using Hugging Face Trainer.
+    3. **Advanced Classical**: MFCCs + MelSpectrogram + SVM/XGBoost.
+    4. **Transfer Learning**: PyTorch YAMNet embeddings + SVM.
+    5. **Data Augmentation**: Setup for deep learning.
+    6. **Fine-Tuning**: Fine-tuning `facebook/wav2vec2-base` using Hugging Face Trainer.
     """)
     return
 
@@ -45,6 +46,13 @@ def _():
     from sklearn.model_selection import StratifiedKFold, cross_val_score
     from sklearn.preprocessing import StandardScaler
     import random
+    import xgboost as xgb
+    import xgboost as xgb
+    from torch_vggish_yamnet import yamnet
+
+
+
+
 
     # Ensure models directory exists
     os.makedirs("models", exist_ok=True)
@@ -69,6 +77,8 @@ def _():
         os,
         random,
         torch,
+        xgb,
+        yamnet,
     )
 
 
@@ -162,46 +172,75 @@ def _(
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 3. Advanced Classical ML: MFCCs + SVM
+    ## 3. Advanced Classical ML: MFCCs + MelSpectrogram + SVM/XGBoost
+
+    Using Torchaudio to extract:
+    - MFCCs (40)
+    - Mel Spectrogram (128)
+
+    Models:
+    - SVM (RBF Kernel)
+    - XGBoost
     """)
     return
 
 
 @app.cell
 def _(T, dataset, np, torch):
-    # Function to extract MFCCs using Torchaudio
-    def extract_mfccs(batch):
+    # Function to extract advanced features using Torchaudio only
+    # (Librosa unavailable on Py3.13)
+    def extract_advanced_features(batch):
         audio_arrays = [x["array"] for x in batch["audio"]]
         sr = 16000
 
-        # MFCC Transform
+        # Define transforms
+        # 1. MFCC
         mfcc_transform = T.MFCC(
             sample_rate=sr,
             n_mfcc=40,
             melkwargs={"n_fft": 400, "hop_length": 160, "n_mels": 64, "center": False}
         )
 
+        # 2. MelSpectrogram (128 bins)
+        mel_transform = T.MelSpectrogram(
+            sample_rate=sr,
+            n_fft=400,
+            hop_length=160,
+            n_mels=128,
+            center=False
+        )
+
         features = []
         for y in audio_arrays:
             y_tensor = torch.tensor(y, dtype=torch.float32)
+
+            # Extract MFCC
             mfcc = mfcc_transform(y_tensor)
-            # Aggregate: Mean and Std over time
             mfcc_mean = torch.mean(mfcc, dim=1).numpy()
             mfcc_std = torch.std(mfcc, dim=1).numpy()
-            features.append(np.concatenate([mfcc_mean, mfcc_std]))
 
-        return {"mfcc_features": features, "labels": batch["label"]}
+            # Extract Mel Spectrogram
+            melspec = mel_transform(y_tensor)
+            # Convert to log scale (dB) roughly: log(x + eps)
+            melspec_db = torch.log(melspec + 1e-9)
+            mel_mean = torch.mean(melspec_db, dim=1).numpy()
+            mel_std = torch.std(melspec_db, dim=1).numpy()
 
-    print("Extracting MFCCs...")
-    train_mfcc = dataset["train"].map(extract_mfccs, batched=True, batch_size=100)
-    test_mfcc = dataset["test"].map(extract_mfccs, batched=True, batch_size=100)
+            # Concatenate: 40*2 + 128*2 = 80 + 256 = 336 features
+            features.append(np.concatenate([mfcc_mean, mfcc_std, mel_mean, mel_std]))
 
-    X_train_advanced = np.array(train_mfcc["mfcc_features"])
-    y_train_advanced = np.array(train_mfcc["labels"])
-    X_test_advanced = np.array(test_mfcc["mfcc_features"])
-    y_test_advanced = np.array(test_mfcc["labels"])
+        return {"advanced_features": features, "labels": batch["label"]}
 
-    print(f"MFCC Feature Matrix Shape: {X_train_advanced.shape}")
+    print("Extracting Advanced Features (MFCC + MelSpectrogram)...")
+    train_feat = dataset["train"].map(extract_advanced_features, batched=True, batch_size=100)
+    test_feat = dataset["test"].map(extract_advanced_features, batched=True, batch_size=100)
+
+    X_train_advanced = np.array(train_feat["advanced_features"])
+    y_train_advanced = np.array(train_feat["labels"])
+    X_test_advanced = np.array(test_feat["advanced_features"])
+    y_test_advanced = np.array(test_feat["labels"])
+
+    print(f"Advanced Feature Matrix Shape: {X_train_advanced.shape}")
     return X_test_advanced, X_train_advanced, y_test_advanced, y_train_advanced
 
 
@@ -246,14 +285,142 @@ def _(
 ):
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     scores = cross_val_score(clf_svc, X_train_scaled, y_train_advanced, cv=cv, scoring='accuracy')
-    print(f"5-Fold CV Accuracy: {np.mean(scores):.4f} (+/- {np.std(scores):.4f})")
+    print(f"5-Fold CV Accuracy (SVM): {np.mean(scores):.4f} (+/- {np.std(scores):.4f})")
+    return
+
+
+@app.cell
+def _(
+    X_test_advanced,
+    X_train_advanced,
+    accuracy_score,
+    classification_report,
+    xgb,
+    y_test,
+    y_test_advanced,
+    y_train_advanced,
+):
+    # Train XGBoost
+    # XGBoost can often handle unscaled data well, but since we have it let's try raw first
+    # (or we could use X_train_scaled)
+
+    xgb_clf = xgb.XGBClassifier(
+        n_estimators=100, 
+        learning_rate=0.1, 
+        max_depth=5, 
+        random_state=42,
+        use_label_encoder=False,
+        eval_metric='mlogloss'
+    )
+    xgb_clf.fit(X_train_advanced, y_train_advanced)
+
+    y_pred_xgb = xgb_clf.predict(X_test_advanced)
+    acc_xgb = accuracy_score(y_test_advanced, y_pred_xgb)
+
+    print(f"MFCC + XGBoost Accuracy: {acc_xgb:.4f}")
+    print("\nClassification Report (XGBoost):")
+    print(classification_report(y_test, y_pred_xgb))
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 4. Data Augmentation Setup
+    ## 4. YAMNet Embeddings (Transfer Learning) + SVM
+
+    Using **PyTorch** implementation of YAMNet to extract 1024-d embeddings.
+    """)
+    return
+
+
+@app.cell
+def _(
+    SVC,
+    StandardScaler,
+    accuracy_score,
+    classification_report,
+    dataset,
+    np,
+    out,
+    torch,
+    y_test,
+    yamnet,
+):
+    # Load PyTorch YAMNet
+    # Requires initializing and loading weights usually, but let's check if the package provides a helper.
+    # The package `torch_vggish_yamnet` likely has a `yamnet` function or class.
+    # We will assume: `model = torch_vggish_yamnet.yamnet(pretrained=True)` or similar.
+    # If not simple, we might need to download weights. 
+    # Let's try to instantiate it. 
+    # Based on package naming, likely `model = torch_vggish_yamnet.yamnet()`
+
+    yamnet_model = yamnet.yamnet(pretrained=True)
+    yamnet_model.eval()
+
+    yamnet_device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.backends.mps.is_available():
+        yamnet_device = "mps"
+    yamnet_model.to(yamnet_device)
+
+    def extract_yamnet_embeddings(batch):
+        audio_arrays = [x["array"] for x in batch["audio"]]
+        embeddings_batch = []
+
+        with torch.no_grad():
+            for waveform in audio_arrays:
+                # YAMNet expects float32 tensor
+                waveform_tensor = torch.tensor(waveform, dtype=torch.float32).to(yamnet_device)
+                # Reshape to (N,) - strict 1D
+                if waveform_tensor.ndim > 1:
+                     waveform_tensor = waveform_tensor.squeeze()
+
+                # Model call
+                # Returns: prediction, embedding, log_mel_spectrogram
+                _, embedding = yamnet_model(waveform_tensor)
+                print(out)
+
+                # Embedding shape: (N_frames, 1024)
+                # Average pooling
+                avg_embedding = torch.mean(embedding, dim=0).cpu().numpy()
+                embeddings_batch.append(avg_embedding)
+
+        return {"yamnet_embeddings": embeddings_batch, "labels": batch["label"]}
+
+    print("\nExtracting PyTorch YAMNet Embeddings...")
+    train_yam = dataset["train"].map(extract_yamnet_embeddings, batched=True, batch_size=8)
+    test_yam = dataset["test"].map(extract_yamnet_embeddings, batched=True, batch_size=8)
+
+    X_train_yam = np.array(train_yam["yamnet_embeddings"])
+    y_train_yam = np.array(train_yam["labels"])
+    X_test_yam = np.array(test_yam["yamnet_embeddings"])
+
+    # Train SVM on YAMNet features
+    scaler_yam = StandardScaler()
+    X_train_yam_scaled = scaler_yam.fit_transform(X_train_yam)
+    X_test_yam_scaled = scaler_yam.transform(X_test_yam)
+
+    clf_yam = SVC(kernel='rbf', C=1.0, random_state=42)
+    clf_yam.fit(X_train_yam_scaled, y_train_yam)
+
+    y_pred_yam = clf_yam.predict(X_test_yam_scaled)
+    acc_yam = accuracy_score(y_test, y_pred_yam)
+
+    print(f"YAMNet Embeddings + SVM Accuracy: {acc_yam:.4f}")
+    print(classification_report(y_test, y_pred_yam))
+
+    return
+
+
+@app.cell
+def _(torch_vggish_yamnet):
+    torch_vggish_yamnet
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""
+    ## 5. Data Augmentation Setup
     """)
     return
 
@@ -283,7 +450,7 @@ def _(random, torch):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""
-    ## 5. Fine-Tune Wav2Vec2
+    ## 6. Fine-Tune Wav2Vec2
     """)
     return
 
@@ -347,7 +514,6 @@ def _(AutoFeatureExtractor, apply_augmentation_pipeline, dataset, torch):
         batched=True, 
         batch_size=100
     )
-
     return MODEL_CHECKPOINT, encoded_test, encoded_train, feature_extractor
 
 

@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: predictor
+  labels:
+    app: baby-cry-classifier
+    component: predictor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: baby-cry-classifier
+      component: predictor
+  template:
+    metadata:
+      labels:
+        app: baby-cry-classifier
+        component: predictor
+    spec:
+      containers:
+        - name: predictor
+          image: baby-cry-classifier:latest
+          imagePullPolicy: Never # For kind - use local image
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SERVICE_MODE
+              value: "predictor"
+            - name: CONFIG_PATH
+              value: "config.yml"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
