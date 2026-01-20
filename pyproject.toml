@@ -22,6 +22,7 @@ dependencies = [
     "torchvision>=0.24.1",
     "httpx>=0.28.0",
     "joblib>=1.4.0",
+    "soundfile>=0.13.0",
 ]
 
 [project.scripts]

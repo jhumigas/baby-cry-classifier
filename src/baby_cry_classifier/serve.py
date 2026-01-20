@@ -1,9 +1,9 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel
 import torch
-import torchaudio
 import io
 import numpy as np
+import soundfile as sf
 from baby_cry_classifier import data, predict as predict_lib, config as cfg
 import os
 import httpx
@@ -58,6 +58,17 @@ class ClassifyOutput(BaseModel):
     class_id: int
     features: list[float]
 
+def load_audio_from_bytes(audio_bytes):
+    """Load audio using soundfile (more reliable than torchaudio)."""
+    audio_data, sr = sf.read(io.BytesIO(audio_bytes))
+    # Convert to tensor format
+    waveform = torch.tensor(audio_data, dtype=torch.float32)
+    if waveform.ndim == 1:
+        waveform = waveform.unsqueeze(0)  # Add channel dim
+    elif waveform.ndim == 2:
+        waveform = waveform.T  # channels x samples
+    return waveform, sr
+
 @app.post("/preprocess")
 async def preprocess(file: UploadFile = File(...)):
     """Extract features from audio file."""
@@ -69,11 +80,16 @@ async def preprocess(file: UploadFile = File(...)):
             raise HTTPException(status_code=503, detail="Configuration not loaded")
 
         content = await file.read()
-        waveform, sr = torchaudio.load(io.BytesIO(content))
+        waveform, sr = load_audio_from_bytes(content)
         features = data.compute_features(waveform, config.features, sr)
         
         return {"features": features.tolist()}
+    except HTTPException:
+        raise
     except Exception as e:
+        import traceback
+        print(f"Preprocess error: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
 
 @app.post("/predict", response_model=PredictionOutput)
@@ -105,7 +121,7 @@ async def classify(file: UploadFile = File(...)):
         content = await file.read()
         
         if SERVICE_MODE == "monolith":
-            waveform, sr = torchaudio.load(io.BytesIO(content))
+            waveform, sr = load_audio_from_bytes(content)
             features = data.compute_features(waveform, config.features, sr)
             features_list = features.tolist()
             
